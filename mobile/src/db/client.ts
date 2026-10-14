@@ -1,12 +1,12 @@
 import * as SQLite from "expo-sqlite";
-import * as FileSystem from "expo-file-system/legacy";
+import { File, Directory, Paths } from "expo-file-system";
 import { Asset } from "expo-asset";
 import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import * as schema from "./schema";
 
 const DB_NAME = "surayt.db";
-const SQLITE_DIR = `${FileSystem.documentDirectory}SQLite`;
-const LOCAL_DB_URI = `${SQLITE_DIR}/${DB_NAME}`;
+const sqliteDir = new Directory(Paths.document, "SQLite");
+const localDbFile = new File(sqliteDir, DB_NAME);
 
 let sqliteInstance: SQLite.SQLiteDatabase | null = null;
 let drizzleInstance: ExpoSQLiteDatabase<typeof schema> | null = null;
@@ -20,9 +20,8 @@ export async function initializeDatabase(): Promise<ExpoSQLiteDatabase<typeof sc
     return drizzleInstance;
   }
 
-  const dirInfo = await FileSystem.getInfoAsync(SQLITE_DIR);
-  if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(SQLITE_DIR, { intermediates: true });
+  if (!sqliteDir.exists) {
+    sqliteDir.create({ idempotent: true });
   }
 
   // Resolve het gebundelde surayt.db bestand uit mobile/assets/database/surayt.db
@@ -33,14 +32,10 @@ export async function initializeDatabase(): Promise<ExpoSQLiteDatabase<typeof sc
     throw new Error("Kon gebundelde surayt.db asset niet laden.");
   }
 
-  const localDbInfo = await FileSystem.getInfoAsync(LOCAL_DB_URI);
-
-  if (!localDbInfo.exists) {
+  if (!localDbFile.exists) {
     // Eerste installatie: kopieer de voorgevulde database direct
-    await FileSystem.copyAsync({
-      from: asset.localUri,
-      to: LOCAL_DB_URI,
-    });
+    const assetFile = new File(asset.localUri);
+    await assetFile.copy(localDbFile);
   } else {
     // Bestaande installatie: controleer of de bundel een nieuwere content_version bevat
     await syncBundledContentIfNeeded(asset.localUri);
@@ -58,11 +53,12 @@ export async function initializeDatabase(): Promise<ExpoSQLiteDatabase<typeof sc
  * Voert bij een nieuwere versie een niet-destructieve UPSERT uit via ATTACH DATABASE.
  */
 async function syncBundledContentIfNeeded(bundledAssetUri: string): Promise<void> {
-  const tempSeedPath = `${SQLITE_DIR}/surayt_seed_tmp.db`;
-  await FileSystem.copyAsync({ from: bundledAssetUri, to: tempSeedPath });
+  const tempSeedFile = new File(sqliteDir, "surayt_seed_tmp.db");
+  const assetFile = new File(bundledAssetUri);
+  await assetFile.copy(tempSeedFile);
 
   const db = SQLite.openDatabaseSync(DB_NAME);
-  const cleanAttachPath = tempSeedPath.replace("file://", "");
+  const cleanAttachPath = tempSeedFile.uri.replace("file://", "");
 
   try {
     db.execSync(`ATTACH DATABASE '${cleanAttachPath}' AS bundled_seed;`);
@@ -150,7 +146,9 @@ async function syncBundledContentIfNeeded(bundledAssetUri: string): Promise<void
     db.execSync("DETACH DATABASE bundled_seed;");
   } finally {
     db.closeSync();
-    await FileSystem.deleteAsync(tempSeedPath, { idempotent: true });
+    if (tempSeedFile.exists) {
+      tempSeedFile.delete();
+    }
   }
 }
 

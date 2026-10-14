@@ -1,24 +1,35 @@
 import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system/legacy";
+import { File, Directory, Paths } from "expo-file-system";
 import * as Haptics from "expo-haptics";
-
-const AUDIO_CACHE_DIR = `${FileSystem.documentDirectory}surayt_audio_cache/`;
+import { Platform } from "react-native";
 
 class SuraytAudioManager {
   private currentSound: Audio.Sound | null = null;
   private isConfigured = false;
+  private cacheDir: Directory | null = null;
 
   private async ensureConfigured(): Promise<void> {
     if (this.isConfigured) return;
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-    });
-    const dirInfo = await FileSystem.getInfoAsync(AUDIO_CACHE_DIR);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(AUDIO_CACHE_DIR, { intermediates: true });
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+    } catch {
+      // Audio configuratie fallback voor web/omgevingen zonder native audio mode
+    }
+
+    if (Platform.OS !== "web") {
+      try {
+        this.cacheDir = new Directory(Paths.cache, "surayt_audio_cache");
+        if (!this.cacheDir.exists) {
+          this.cacheDir.create({ idempotent: true });
+        }
+      } catch (err) {
+        console.warn("Kon audiocache directory niet aanmaken:", err);
+      }
     }
     this.isConfigured = true;
   }
@@ -33,32 +44,33 @@ class SuraytAudioManager {
   ): Promise<boolean> {
     try {
       await this.ensureConfigured();
-      await Haptics.selectionAsync();
+      if (Platform.OS !== "web") {
+        await Haptics.selectionAsync();
+      }
 
       if (this.currentSound) {
         await this.currentSound.unloadAsync();
         this.currentSound = null;
       }
 
-      const cachedFileUri = `${AUDIO_CACHE_DIR}${itemId}.mp3`;
-      const cachedInfo = await FileSystem.getInfoAsync(cachedFileUri);
-
       let sourceUri: string | null = null;
 
-      if (cachedInfo.exists && cachedInfo.size > 512) {
-        sourceUri = cachedFileUri;
-      } else if (remoteAudioUrl && remoteAudioUrl.startsWith("http")) {
-        // Download eenmalig naar de lokale cache voor toekomstig offline gebruik
-        try {
-          const downloadRes = await FileSystem.downloadAsync(remoteAudioUrl, cachedFileUri);
-          if (downloadRes.status === 200) {
-            sourceUri = downloadRes.uri;
-          } else {
+      // Op mobiel: gebruik lokale offline cache via Expo FileSystem File API
+      if (Platform.OS !== "web" && this.cacheDir) {
+        const cachedFile = new File(this.cacheDir, `${itemId}.mp3`);
+        if (cachedFile.exists && (cachedFile.info().size ?? 0) > 512) {
+          sourceUri = cachedFile.uri;
+        } else if (remoteAudioUrl && remoteAudioUrl.startsWith("http")) {
+          try {
+            await File.downloadFileAsync(remoteAudioUrl, cachedFile, { idempotent: true });
+            sourceUri = cachedFile.uri;
+          } catch {
             sourceUri = remoteAudioUrl;
           }
-        } catch {
-          sourceUri = remoteAudioUrl;
         }
+      } else if (remoteAudioUrl && remoteAudioUrl.startsWith("http")) {
+        // Op web: stream direct vanaf de externe URL
+        sourceUri = remoteAudioUrl;
       }
 
       if (!sourceUri) {

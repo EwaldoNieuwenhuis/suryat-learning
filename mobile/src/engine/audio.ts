@@ -43,7 +43,9 @@ class SuraytAudioManager {
           if (typeof this.currentPlayer.pause === "function") {
             this.currentPlayer.pause();
           }
-          if (typeof this.currentPlayer.remove === "function") {
+          if (typeof this.currentPlayer.release === "function") {
+            this.currentPlayer.release();
+          } else if (typeof this.currentPlayer.remove === "function") {
             this.currentPlayer.remove();
           }
         } catch {}
@@ -96,7 +98,9 @@ class SuraytAudioManager {
 
       // Native (iOS & Android via expo-audio in SDK 57)
       const player = createAudioPlayer(sourceUri);
-      player.playbackRate = playbackRate;
+      if (typeof player.setPlaybackRate === "function" && playbackRate !== 1.0) {
+        player.setPlaybackRate(playbackRate);
+      }
       player.play();
       this.currentPlayer = player;
 

@@ -67,13 +67,6 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="lesson/[id]"
-          options={{
-            headerShown: false,
-            presentation: "card",
-          }}
-        />
       </Stack>
     </GestureHandlerRootView>
   );

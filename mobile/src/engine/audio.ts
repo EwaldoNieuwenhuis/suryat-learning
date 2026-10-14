@@ -75,16 +75,23 @@ class SuraytAudioManager {
       }
 
       // Web: HTML5 Audio fallback
-      if (Platform.OS === "web" && typeof window !== "undefined" && window.Audio) {
-        try {
-          const webAudio = new window.Audio(sourceUri);
-          webAudio.playbackRate = playbackRate;
-          await webAudio.play();
-          this.currentPlayer = webAudio;
-          return true;
-        } catch {
-          // Fall through to expo-audio
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined" && window.Audio) {
+          try {
+            const webAudio = new window.Audio();
+            webAudio.src = sourceUri;
+            webAudio.playbackRate = playbackRate;
+            webAudio.onerror = () => {
+              // Vang ongeldige of ontbrekende audio-bronnen stil af op web
+            };
+            await webAudio.play();
+            this.currentPlayer = webAudio;
+            return true;
+          } catch {
+            return false;
+          }
         }
+        return false;
       }
 
       // Native (iOS & Android via expo-audio in SDK 57)

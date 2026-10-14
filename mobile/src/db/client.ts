@@ -32,12 +32,32 @@ export async function initializeDatabase(): Promise<ExpoSQLiteDatabase<typeof sc
     throw new Error("Kon gebundelde surayt.db asset niet laden.");
   }
 
-  if (!localDbFile.exists) {
-    // Eerste installatie: kopieer de voorgevulde database direct
+  // Controleer of de lokale database al bestaat EN daadwerkelijk de vereiste tabellen bevat
+  let isPopulated = false;
+  if (localDbFile.exists) {
+    try {
+      const checkDb = SQLite.openDatabaseSync(DB_NAME);
+      const row = checkDb.getFirstSync<{ count: number }>(
+        "SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='lessons';"
+      );
+      checkDb.closeSync();
+      isPopulated = (row?.count ?? 0) > 0;
+    } catch {
+      isPopulated = false;
+    }
+  }
+
+  if (!isPopulated) {
+    // Eerste installatie of lege/corrupte lokale database: kopieer de voorgevulde database
+    if (localDbFile.exists) {
+      try {
+        localDbFile.delete();
+      } catch {}
+    }
     const assetFile = new File(asset.localUri);
     await assetFile.copy(localDbFile);
   } else {
-    // Bestaande installatie: controleer of de bundel een nieuwere content_version bevat
+    // Bestaande gevulde installatie: controleer of de bundel een nieuwere content_version bevat
     try {
       await syncBundledContentIfNeeded(asset.localUri);
     } catch (syncErr) {
@@ -61,32 +81,38 @@ async function syncBundledContentIfNeeded(bundledAssetUri: string): Promise<void
   const assetFile = new File(bundledAssetUri);
   await assetFile.copy(tempSeedFile);
 
-  const db = SQLite.openDatabaseSync(DB_NAME);
-  let cleanAttachPath = tempSeedFile.uri.replace(/^file:\/\//, "");
-  while (cleanAttachPath.includes("%")) {
-    try {
-      const decoded = decodeURIComponent(cleanAttachPath);
-      if (decoded === cleanAttachPath) break;
-      cleanAttachPath = decoded;
-    } catch {
-      break;
-    }
-  }
-
   try {
-    db.execSync(`ATTACH DATABASE '${cleanAttachPath}' AS bundled_seed;`);
+    // Controleer versienummers zonder ATTACH DATABASE
+    const seedDb = SQLite.openDatabaseSync("surayt_seed_tmp.db");
+    const bundledVersionRow = seedDb.getFirstSync<{ value: string }>(
+      "SELECT value FROM app_meta WHERE key = 'content_version'"
+    );
+    seedDb.closeSync();
 
-    const localVersionRow = db.getFirstSync<{ value: string }>(
-      "SELECT value FROM main.app_meta WHERE key = 'content_version'"
-    );
-    const bundledVersionRow = db.getFirstSync<{ value: string }>(
-      "SELECT value FROM bundled_seed.app_meta WHERE key = 'content_version'"
-    );
+    const db = SQLite.openDatabaseSync(DB_NAME);
+    let localVersionRow: { value: string } | null = null;
+    try {
+      localVersionRow = db.getFirstSync<{ value: string }>(
+        "SELECT value FROM main.app_meta WHERE key = 'content_version'"
+      );
+    } catch {}
 
     const localVer = parseInt(localVersionRow?.value ?? "0", 10);
     const bundledVer = parseInt(bundledVersionRow?.value ?? "1", 10);
 
-    if (bundledVer > localVer) {
+    if (bundledVer <= localVer) {
+      // Reeds up-to-date, geen ATTACH of migratie nodig
+      db.closeSync();
+      return;
+    }
+
+    // Alleen bij een nieuwere versie voeren we ATTACH DATABASE uit
+    let cleanAttachPath = tempSeedFile.uri.replace(/^file:\/\//, "");
+    cleanAttachPath = decodeURI(cleanAttachPath);
+
+    try {
+      db.execSync(`ATTACH DATABASE '${cleanAttachPath}' AS bundled_seed;`);
+
       db.execSync(`
         BEGIN TRANSACTION;
 
@@ -154,13 +180,18 @@ async function syncBundledContentIfNeeded(bundledAssetUri: string): Promise<void
 
         COMMIT;
       `);
-    }
 
-    db.execSync("DETACH DATABASE bundled_seed;");
+      db.execSync("DETACH DATABASE bundled_seed;");
+    } catch (attachErr) {
+      console.warn("ATTACH DATABASE niet ondersteund op dit platform, bestaande data behouden:", attachErr);
+    } finally {
+      db.closeSync();
+    }
   } finally {
-    db.closeSync();
     if (tempSeedFile.exists) {
-      tempSeedFile.delete();
+      try {
+        tempSeedFile.delete();
+      } catch {}
     }
   }
 }

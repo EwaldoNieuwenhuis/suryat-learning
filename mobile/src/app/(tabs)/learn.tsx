@@ -117,7 +117,7 @@ export default function LearnPathScreen() {
                 titleLatin={item.titleSuraytLat}
                 badgeText={`${item.cefrLevel} • ${item.totalWords} woorden`}
                 badgeVariant={isCompleted ? "olive" : "gold"}
-                onPress={() => router.push(`/lesson/${item.id}`)}
+                onPress={() => router.push(`/lesson/${item.id}` as any)}
               >
                 <Text style={[styles.lessonTitleNl, { color: theme.textPrimary }]}>
                   {item.titleNl}

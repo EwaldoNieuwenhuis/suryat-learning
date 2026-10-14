@@ -163,7 +163,7 @@ export default function StatsAnalyticsScreen() {
           ) : (
             <View>
               <Pressable
-                onPress={() => router.push("/(tabs)/review?mode=struggle")}
+                onPress={() => router.push("/(tabs)/review?mode=struggle" as any)}
                 style={[
                   styles.practiceStruggleBtn,
                   { backgroundColor: theme.primary },

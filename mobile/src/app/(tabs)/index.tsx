@@ -217,7 +217,7 @@ export default function DashboardScreen() {
             titleLatin={nextLesson.titleSuraytLat}
             badgeText={nextLesson.cefrLevel}
             badgeVariant="crimson"
-            onPress={() => router.push(`/lesson/${nextLesson.id}`)}
+            onPress={() => router.push(`/lesson/${nextLesson.id}` as any)}
           >
             <Text style={[styles.lessonTitleNl, { color: theme.textPrimary }]}>
               {nextLesson.titleNl}
@@ -250,7 +250,7 @@ export default function DashboardScreen() {
               : "Bijgewerkt"
           }
           badgeVariant="olive"
-          onPress={() => router.push("/(tabs)/review")}
+          onPress={() => router.push("/(tabs)/review" as any)}
         >
           <View style={styles.srsRow}>
             <Layers size={22} color={theme.olive} />

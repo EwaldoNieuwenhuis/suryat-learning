@@ -45,19 +45,28 @@ export async function initializeDatabase(): Promise<SQLJsDatabase<typeof schema>
     throw new Error("Kon gebundelde surayt.db asset niet laden op het web.");
   }
 
-  // 2. Download de binaire database array-buffer
-  const response = await fetch(dbUri);
-  if (!response.ok) {
-    throw new Error(`Fout bij downloaden van surayt.db: HTTP status ${response.status}`);
+  // 2. Download parallel de database data en de WebAssembly binary
+  const [dbResponse, wasmResponse] = await Promise.all([
+    fetch(dbUri),
+    fetch("https://sql.js.org/dist/sql-wasm.wasm"),
+  ]);
+
+  if (!dbResponse.ok) {
+    throw new Error(`Fout bij downloaden van surayt.db: HTTP status ${dbResponse.status}`);
   }
-  const arrayBuffer = await response.arrayBuffer();
+  if (!wasmResponse.ok) {
+    throw new Error(`Fout bij downloaden van sql-wasm.wasm: HTTP status ${wasmResponse.status}`);
+  }
 
-  // 3. Initialiseer sql.js WebAssembly
-  const SQL = await initSqlJs({
-    locateFile: (file) => `https://sql.js.org/dist/${file}`,
-  });
+  const [dbBuffer, wasmBinary] = await Promise.all([
+    dbResponse.arrayBuffer(),
+    wasmResponse.arrayBuffer(),
+  ]);
 
-  sqlJsDbInstance = new SQL.Database(new Uint8Array(arrayBuffer));
+  // 3. Initialiseer sql.js WebAssembly met de gedownloade binary (voorkomt Metro MIME-type fouten)
+  const SQL = await initSqlJs({ wasmBinary });
+
+  sqlJsDbInstance = new SQL.Database(new Uint8Array(dbBuffer));
 
   // 4. Bouw de synchrone adapter die compatibel is met expo-sqlite's SQLiteDatabase interface
   rawSqliteAdapter = {

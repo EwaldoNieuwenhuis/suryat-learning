@@ -1,25 +1,15 @@
-import { Audio } from "expo-av";
+import { createAudioPlayer } from "expo-audio";
 import { File, Directory, Paths } from "expo-file-system";
 import * as Haptics from "expo-haptics";
 import { Platform } from "react-native";
 
 class SuraytAudioManager {
-  private currentSound: Audio.Sound | null = null;
+  private currentPlayer: any = null;
   private isConfigured = false;
   private cacheDir: Directory | null = null;
 
   private async ensureConfigured(): Promise<void> {
     if (this.isConfigured) return;
-    try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-      });
-    } catch {
-      // Audio configuratie fallback voor web/omgevingen zonder native audio mode
-    }
 
     if (Platform.OS !== "web") {
       try {
@@ -48,9 +38,16 @@ class SuraytAudioManager {
         await Haptics.selectionAsync();
       }
 
-      if (this.currentSound) {
-        await this.currentSound.unloadAsync();
-        this.currentSound = null;
+      if (this.currentPlayer) {
+        try {
+          if (typeof this.currentPlayer.pause === "function") {
+            this.currentPlayer.pause();
+          }
+          if (typeof this.currentPlayer.remove === "function") {
+            this.currentPlayer.remove();
+          }
+        } catch {}
+        this.currentPlayer = null;
       }
 
       let sourceUri: string | null = null;
@@ -77,17 +74,24 @@ class SuraytAudioManager {
         return false;
       }
 
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: sourceUri },
-        { shouldPlay: true, rate: playbackRate, shouldCorrectPitch: true }
-      );
-
-      this.currentSound = sound;
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish) {
-          sound.unloadAsync();
+      // Web: HTML5 Audio fallback
+      if (Platform.OS === "web" && typeof window !== "undefined" && window.Audio) {
+        try {
+          const webAudio = new window.Audio(sourceUri);
+          webAudio.playbackRate = playbackRate;
+          await webAudio.play();
+          this.currentPlayer = webAudio;
+          return true;
+        } catch {
+          // Fall through to expo-audio
         }
-      });
+      }
+
+      // Native (iOS & Android via expo-audio in SDK 57)
+      const player = createAudioPlayer(sourceUri);
+      player.playbackRate = playbackRate;
+      player.play();
+      this.currentPlayer = player;
 
       return true;
     } catch (error) {

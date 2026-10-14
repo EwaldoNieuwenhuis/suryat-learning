@@ -38,7 +38,11 @@ export async function initializeDatabase(): Promise<ExpoSQLiteDatabase<typeof sc
     await assetFile.copy(localDbFile);
   } else {
     // Bestaande installatie: controleer of de bundel een nieuwere content_version bevat
-    await syncBundledContentIfNeeded(asset.localUri);
+    try {
+      await syncBundledContentIfNeeded(asset.localUri);
+    } catch (syncErr) {
+      console.warn("Kon gebundelde database niet synchroniseren, gebruik bestaande lokale database:", syncErr);
+    }
   }
 
   sqliteInstance = SQLite.openDatabaseSync(DB_NAME);
@@ -58,7 +62,16 @@ async function syncBundledContentIfNeeded(bundledAssetUri: string): Promise<void
   await assetFile.copy(tempSeedFile);
 
   const db = SQLite.openDatabaseSync(DB_NAME);
-  const cleanAttachPath = tempSeedFile.uri.replace("file://", "");
+  let cleanAttachPath = tempSeedFile.uri.replace(/^file:\/\//, "");
+  while (cleanAttachPath.includes("%")) {
+    try {
+      const decoded = decodeURIComponent(cleanAttachPath);
+      if (decoded === cleanAttachPath) break;
+      cleanAttachPath = decoded;
+    } catch {
+      break;
+    }
+  }
 
   try {
     db.execSync(`ATTACH DATABASE '${cleanAttachPath}' AS bundled_seed;`);

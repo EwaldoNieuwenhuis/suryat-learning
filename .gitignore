@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3
+*.log
+
+# Node / Mobile
+node_modules/
+.expo/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,12 +1,8 @@
 import * as SQLite from "expo-sqlite";
-import { File, Directory, Paths } from "expo-file-system";
-import { Asset } from "expo-asset";
 import { drizzle, ExpoSQLiteDatabase } from "drizzle-orm/expo-sqlite";
 import * as schema from "./schema";
 
 const DB_NAME = "surayt.db";
-const sqliteDir = new Directory(Paths.document, "SQLite");
-const localDbFile = new File(sqliteDir, DB_NAME);
 
 let sqliteInstance: SQLite.SQLiteDatabase | null = null;
 let drizzleInstance: ExpoSQLiteDatabase<typeof schema> | null = null;
@@ -20,46 +16,29 @@ export async function initializeDatabase(): Promise<ExpoSQLiteDatabase<typeof sc
     return drizzleInstance;
   }
 
-  if (!sqliteDir.exists) {
-    sqliteDir.create({ idempotent: true });
-  }
-
-  // Resolve het gebundelde surayt.db bestand uit mobile/assets/database/surayt.db
-  const asset = Asset.fromModule(require("../../assets/database/surayt.db"));
-  await asset.downloadAsync();
-
-  if (!asset.localUri) {
-    throw new Error("Kon gebundelde surayt.db asset niet laden.");
-  }
-
   // Controleer of de lokale database al bestaat EN daadwerkelijk de vereiste tabellen bevat
   let isPopulated = false;
-  if (localDbFile.exists) {
-    try {
-      const checkDb = SQLite.openDatabaseSync(DB_NAME);
-      const row = checkDb.getFirstSync<{ count: number }>(
-        "SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='lessons';"
-      );
-      checkDb.closeSync();
-      isPopulated = (row?.count ?? 0) > 0;
-    } catch {
-      isPopulated = false;
-    }
+  try {
+    const checkDb = SQLite.openDatabaseSync(DB_NAME);
+    const row = checkDb.getFirstSync<{ count: number }>(
+      "SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='lessons';"
+    );
+    checkDb.closeSync();
+    isPopulated = (row?.count ?? 0) > 0;
+  } catch {
+    isPopulated = false;
   }
 
   if (!isPopulated) {
-    // Eerste installatie of lege/corrupte lokale database: kopieer de voorgevulde database
-    if (localDbFile.exists) {
-      try {
-        localDbFile.delete();
-      } catch {}
-    }
-    const assetFile = new File(asset.localUri);
-    await assetFile.copy(localDbFile);
+    // Eerste installatie of lege/corrupte lokale database: importeer direct via de officiële Expo SQLite asset loader
+    await SQLite.importDatabaseFromAssetAsync(DB_NAME, {
+      assetId: require("../../assets/database/surayt.db"),
+      forceOverwrite: true,
+    });
   } else {
     // Bestaande gevulde installatie: controleer of de bundel een nieuwere content_version bevat
     try {
-      await syncBundledContentIfNeeded(asset.localUri);
+      await syncBundledContentIfNeeded();
     } catch (syncErr) {
       console.warn("Kon gebundelde database niet synchroniseren, gebruik bestaande lokale database:", syncErr);
     }
@@ -76,14 +55,16 @@ export async function initializeDatabase(): Promise<ExpoSQLiteDatabase<typeof sc
  * Vergelijkt 'content_version' tussen de lokale gebruikersdatabase en de nieuwe app-bundel.
  * Voert bij een nieuwere versie een niet-destructieve UPSERT uit via ATTACH DATABASE.
  */
-async function syncBundledContentIfNeeded(bundledAssetUri: string): Promise<void> {
-  const tempSeedFile = new File(sqliteDir, "surayt_seed_tmp.db");
-  const assetFile = new File(bundledAssetUri);
-  await assetFile.copy(tempSeedFile);
+async function syncBundledContentIfNeeded(): Promise<void> {
+  const SEED_DB_NAME = "surayt_seed_tmp.db";
+  await SQLite.importDatabaseFromAssetAsync(SEED_DB_NAME, {
+    assetId: require("../../assets/database/surayt.db"),
+    forceOverwrite: true,
+  });
 
   try {
     // Controleer versienummers zonder ATTACH DATABASE
-    const seedDb = SQLite.openDatabaseSync("surayt_seed_tmp.db");
+    const seedDb = SQLite.openDatabaseSync(SEED_DB_NAME);
     const bundledVersionRow = seedDb.getFirstSync<{ value: string }>(
       "SELECT value FROM app_meta WHERE key = 'content_version'"
     );
@@ -107,11 +88,8 @@ async function syncBundledContentIfNeeded(bundledAssetUri: string): Promise<void
     }
 
     // Alleen bij een nieuwere versie voeren we ATTACH DATABASE uit
-    let cleanAttachPath = tempSeedFile.uri.replace(/^file:\/\//, "");
-    cleanAttachPath = decodeURI(cleanAttachPath);
-
     try {
-      db.execSync(`ATTACH DATABASE '${cleanAttachPath}' AS bundled_seed;`);
+      db.execSync(`ATTACH DATABASE '${SEED_DB_NAME}' AS bundled_seed;`);
 
       db.execSync(`
         BEGIN TRANSACTION;
@@ -188,11 +166,9 @@ async function syncBundledContentIfNeeded(bundledAssetUri: string): Promise<void
       db.closeSync();
     }
   } finally {
-    if (tempSeedFile.exists) {
-      try {
-        tempSeedFile.delete();
-      } catch {}
-    }
+    try {
+      SQLite.deleteDatabaseSync(SEED_DB_NAME);
+    } catch {}
   }
 }
 

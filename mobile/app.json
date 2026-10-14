@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Šlomo Surayt",
+    "slug": "surayt-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "surayt",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.surayt.learning"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F6F0E6"
+      },
+      "package": "com.surayt.learning"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -2,12 +2,37 @@ import { create } from "zustand";
 import { createJSONStorage, persist, StateStorage } from "zustand/middleware";
 import { MMKV } from "react-native-mmkv";
 
-const storage = new MMKV({ id: "surayt-user-preferences" });
+let storage: MMKV | null = null;
+const memoryStore = new Map<string, string>();
+
+try {
+  storage = new MMKV({ id: "surayt-user-preferences" });
+} catch {
+  // Fallback for environments without MMKV native JSI module (e.g. Expo Go, web, tests)
+  storage = null;
+}
 
 const mmkvStorageAdapter: StateStorage = {
-  setItem: (name, value) => storage.set(name, value),
-  getItem: (name) => storage.getString(name) ?? null,
-  removeItem: (name) => storage.delete(name),
+  setItem: (name, value) => {
+    if (storage) {
+      storage.set(name, value);
+    } else {
+      memoryStore.set(name, value);
+    }
+  },
+  getItem: (name) => {
+    if (storage) {
+      return storage.getString(name) ?? null;
+    }
+    return memoryStore.get(name) ?? null;
+  },
+  removeItem: (name) => {
+    if (storage) {
+      storage.delete(name);
+    } else {
+      memoryStore.delete(name);
+    }
+  },
 };
 
 export type ScriptDisplayMode = "dual" | "serto_only" | "latin_only";
